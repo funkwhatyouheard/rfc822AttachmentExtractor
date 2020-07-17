@@ -1,30 +1,27 @@
 #!/usr/bin/python
-import re, base64, optparse, sys
+import email, re, base64, optparse, sys
 from os import path
 
-def extract_attachment(file,outputdir=r"./"):
+def extract_attachments(file,outputdir=r"./"):
+    base64_regex = r"^([A-Za-z0-9+/]{4})*([A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{2}==)?$"
     with open(file,"r") as file:
-        contents = file.read()
-    attachment_boundary_regex = r"----.+\n+Content-Type:\s(.+)\n+Content-Transfer-Encoding:\s(.+)\n+Content-Disposition:\sattachment.*?\n+(.*?)\n+----"
-    attachment_info = re.findall(attachment_boundary_regex,contents,re.DOTALL)[0]
-    content_type, file_name = attachment_info[0].split("; ")
-    file_name = file_name.split("name=")[1].replace('"','')
-    content_transfer_encoding = attachment_info[1]
-    encoded_attachment = attachment_info[2]
-    if content_transfer_encoding == 'base64':
-        attachment_contents = base64.b64decode(encoded_attachment)
-    else:
-        return "Don't know how to handle {0} content-type".format(content_transfer_encoding)
-    output_file = path.join(outputdir,file_name)
-    if "text" in content_type:
-        flags = "w"
-        attachment_contents = attachment_contents.decode()
-    # assumes binary file
-    else:
-        flags = "wb"
-        attachment_contents = bytes(attachment_contents)
-    with open(output_file,flags) as file:
-        file.write(attachment_contents)
+        message = email.message_from_file(file)
+    attachments = message.get_payload()
+    for attachment in attachments:
+        if attachment.get_filename() is not None:
+            output_file = path.join(outputdir,attachment.get_filename())
+            if re.match(base64_regex,attachment._payload.replace("\n","")):
+                attachment_contents = base64.b64decode(attachment._payload)
+            else:
+                attachment_contents = attachment._payload
+            if "text" in attachment.get_content_type():
+                flags = "w"
+                attachment_contents = attachment_contents.decode()
+            # assumes binary file if not text
+            else:
+                flags = "wb"
+            with open(output_file,flags) as file:
+                file.write(attachment_contents)
         
 def Main():
     oParser = optparse.OptionParser(usage='usage: -f [file] -o [outputdir]\n')
@@ -35,7 +32,8 @@ def Main():
     if args.file is None:
         oParser.print_help()
     else:
-        extract_attachment(args.file,args.outputdir)
+        extract_attachments(args.file,args.outputdir)
+
 
 if __name__ == '__main__':
     sys.exit(Main())
